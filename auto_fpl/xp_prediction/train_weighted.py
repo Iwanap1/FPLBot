@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from typing import Dict, Any
-
+import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
@@ -42,13 +42,52 @@ def _compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]
         "r2": float(r2),
     }
 
+def _save_parity_plot(y_true, y_pred, out_path: str, title: str = "Parity plot"):
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    y_true = np.asarray(y_true).ravel()
+    y_pred = np.asarray(y_pred).ravel()
+
+    # sensible limits (pad a bit)
+    lo = float(min(y_true.min(), y_pred.min()))
+    hi = float(max(y_true.max(), y_pred.max()))
+    pad = 0.05 * (hi - lo if hi > lo else 1.0)
+    lo, hi = lo - pad, hi + pad
+
+    plt.figure(figsize=(6, 6))
+    # scatter (downsample if huge)
+    if len(y_true) > 100_000:
+        idx = np.random.choice(len(y_true), size=100_000, replace=False)
+        plt.scatter(y_true[idx], y_pred[idx], s=2, alpha=0.4)
+    elif len(y_true) > 20_000:
+        # hexbin helps when dense
+        plt.hexbin(y_true, y_pred, gridsize=60, mincnt=1)
+        cb = plt.colorbar()
+        cb.set_label("count")
+    else:
+        plt.scatter(y_true, y_pred, s=6, alpha=0.6)
+
+    # 45° line
+    plt.plot([lo, hi], [lo, hi], linestyle="--", linewidth=1.5)
+
+    plt.xlim(lo, hi)
+    plt.ylim(lo, hi)
+    plt.xlabel("Actual points")
+    plt.ylabel("Predicted points")
+    plt.title(title)
+    plt.gca().set_aspect("equal", adjustable="box")
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close()
+
 
 def train_xp_model(
     data_path: str,
     output_root: str = "../models",            # <-- parent dir where unique run dirs are created
     batch_size: int = 32,
     epochs: int = 50,
-    patience: int = 5,
+    patience: int = 8,
     learning_rate: float = 1e-4,
     test_size: float = 0.2,
     random_state: int = 42,
@@ -71,9 +110,19 @@ def train_xp_model(
     y = data["points"].values
 
     # ------------- split -------------
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state
+    bins = pd.cut(y, bins=[-np.inf, 0, 2, 5, 10, 20, np.inf], labels=False)
+    X_train, X_test, y_train, y_test, bins_train, bins_test = train_test_split(
+        X, y, bins, test_size=test_size, random_state=random_state, stratify=bins
     )
+
+    # ------------- weights -------------
+    counts = pd.Series(bins_train).value_counts().to_dict()
+    w_per_bin = {b: (1.0 / counts[b]) for b in counts}
+    top_bin = max(w_per_bin)
+    w_per_bin[top_bin] *= 1.5
+    sample_weights = np.array([w_per_bin[b] for b in bins_train], dtype=np.float32)
+    sample_weights *= (len(sample_weights) / sample_weights.sum())
+    w_train = torch.tensor(sample_weights, dtype=torch.float32)
 
     # ------------- scale -------------
     scaler = StandardScaler()
@@ -81,22 +130,25 @@ def train_xp_model(
     X_test = scaler.transform(X_test)
 
     # ------------- datasets / loaders -------------
-    train_dataset = TensorDataset(
-        torch.tensor(X_train, dtype=torch.float32),
-        torch.tensor(y_train, dtype=torch.float32),
-    )
+    train_dataset = TensorDataset(torch.tensor(X_train, dtype=torch.float32),
+                                torch.tensor(y_train, dtype=torch.float32),
+                                w_train)
     test_dataset = TensorDataset(
         torch.tensor(X_test, dtype=torch.float32),
         torch.tensor(y_test, dtype=torch.float32),
     )
+    
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     # ------------- model / opt / loss -------------
     model = XPModel(input_size=X_train.shape[1], hidden_size=hidden_size)
-    criterion = torch.nn.HuberLoss()
+    criterion = torch.nn.SmoothL1Loss(reduction="none")
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=3e-4, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=2, verbose=True, min_lr=1e-6
+    )
 
     # ------------- training loop -------------
     best_val_loss = float("inf")
@@ -106,33 +158,51 @@ def train_xp_model(
     for epoch in range(epochs):
         model.train()
         train_losses = []
-        for inputs, targets in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} - Training"):
+        for xb, yb, wb in train_loader:
             optimizer.zero_grad()
-            outputs = model(inputs).squeeze()
-            loss = criterion(outputs, targets)
+            pred = model(xb).squeeze()
+            loss_vec = criterion(pred, yb)
+            loss = (wb * loss_vec).sum() / wb.sum()  # weighted mean
+            train_losses.append(float(loss.detach().cpu()))
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            train_losses.append(loss.item())
 
         avg_train_loss = float(np.mean(train_losses)) if train_losses else float("nan")
 
         # validation on the test split (held-out)
         model.eval()
         val_losses = []
+        y_val_true, y_val_pred = [], []
+
         with torch.no_grad():
             for inputs, targets in tqdm(test_loader, desc=f"Epoch {epoch+1}/{epochs} - Validation"):
                 outputs = model(inputs).squeeze()
-                loss = criterion(outputs, targets)
-                val_losses.append(loss.item())
+                loss_vec = criterion(outputs, targets)   # elementwise SmoothL1
+                val_losses.append(loss_vec.mean().item())
+                y_val_true.append(targets.cpu().numpy())
+                y_val_pred.append(outputs.cpu().numpy())
+
+        y_val_true = np.concatenate(y_val_true)
+        y_val_pred = np.concatenate(y_val_pred)
 
         avg_val_loss = float(np.mean(val_losses)) if val_losses else float("nan")
+        val_mse = mean_squared_error(y_val_true, y_val_pred)
+        scheduler.step(val_mse)
 
-        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
-        history.append({"epoch": epoch + 1, "train_loss": avg_train_loss, "val_loss": avg_val_loss})
+        print(f"Epoch {epoch+1}/{epochs}, "
+            f"Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}, Val MSE: {val_mse:.4f}")
 
-        # early stopping + checkpoint
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
+        history.append({
+            "epoch": epoch + 1,
+            "train_loss": avg_train_loss,
+            "val_loss": avg_val_loss,
+            "val_mse": val_mse,
+        })
+
+        # --- save best model by lowest MSE ---
+        if val_mse < best_val_loss:  # rename var to best_val_mse if you want clarity
+            best_val_loss = val_mse
             torch.save(model.state_dict(), os.path.join(run_dir, "model.pt"))
             epochs_no_improve = 0
         else:
@@ -156,7 +226,7 @@ def train_xp_model(
         # train preds
         train_preds = []
         train_targets = []
-        for xb, yb in DataLoader(train_dataset, batch_size=batch_size, shuffle=False):
+        for xb, yb, wb in DataLoader(train_dataset, batch_size=batch_size, shuffle=False):
             train_preds.append(model(xb).squeeze().cpu().numpy())
             train_targets.append(yb.cpu().numpy())
         train_preds = np.concatenate(train_preds)
@@ -171,14 +241,16 @@ def train_xp_model(
         test_preds = np.concatenate(test_preds)
         test_targets = np.concatenate(test_targets)
 
-    train_metrics = _compute_metrics(train_targets, train_preds)
-    test_metrics = _compute_metrics(test_targets, test_preds)
+    # --- save parity plots ---
+    _save_parity_plot(train_targets, train_preds, os.path.join(run_dir, "parity_train.png"), "Train parity")
+    _save_parity_plot(test_targets,  test_preds,  os.path.join(run_dir, "parity_test.png"),  "Test parity")
 
-    metrics_rows = [
-        {"split": "train", **train_metrics},
-        {"split": "test", **test_metrics},
-    ]
-    pd.DataFrame(metrics_rows).to_csv(os.path.join(run_dir, "metrics.csv"), index=False)
+    # (optional) save raw predictions too
+    pd.DataFrame({
+        "split": ["train"] * len(train_targets) + ["test"] * len(test_targets),
+        "y_true": np.concatenate([train_targets, test_targets]),
+        "y_pred": np.concatenate([train_preds,  test_preds]),
+    }).to_csv(os.path.join(run_dir, "predictions.csv"), index=False)
 
     # ------------- save config (useful for reproducibility) -------------
     config: Dict[str, Any] = {
@@ -202,4 +274,4 @@ def train_xp_model(
     return run_dir
 
 if __name__ == "__main__":
-    train_xp_model("../data/incl_set_pieces.csv")
+    train_xp_model("../data/incl_set_pieces.csv", hidden_size=[128, 128, 64], learning_rate=1e-5)

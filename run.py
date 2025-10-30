@@ -12,7 +12,7 @@ controller = FPLController(
 )
 
 
-xp_predictor = XPPredictor(model_dir="auto_fpl/models/20251029-163004-3b0a27a3")
+xp_predictor = XPPredictor(model_dir="auto_fpl/models/20251030-124817-02059817")
 
 
 # TRANSFER PLANNERS 

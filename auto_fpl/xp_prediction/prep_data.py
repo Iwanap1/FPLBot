@@ -1,10 +1,12 @@
 import pandas as pd
 from typing import Dict
+import numpy as np
 
 FIELDS_TO_WEIGHT = ["assists", "goals_scored", "minutes", "goals_conceded",
                     "influence", "creativity", "threat", "ict_index", "bonus", "yellow_cards", "saves",
-                    "expected_assists","expected_goal_involvements", "expected_goals", "expected_goals_conceded"]
+                    "expected_assists","expected_goal_involvements", "expected_goals", "expected_goals_conceded", "starts"]
 
+INVERSE_FEATURES = ["penalties_order", "direct_freekicks_order", "corners_and_indirect_freekicks_order"]
 
 def load_csv(path):
     for enc in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
@@ -44,6 +46,8 @@ def calculate_weighted_field(player_df, field_name, upcoming_gw, look_back=5):
     total_weight = 0.0
     for i, (_, fixture) in enumerate(previous_fixtures.iterrows()):
         weight = look_back - i  # i=0 (most recent) → biggest weight
+        if fixture.get(field_name, None) is None:
+            print(f"{field_name} not found")
         val = float(fixture.get(field_name, 0) or 0)
         weighted_sum += val * weight
         total_weight += weight
@@ -75,33 +79,26 @@ def get_team_and_fixture_info(player_df, teams_df, upcoming_gw, fixtures_df, loo
     return gw_data
 
 
-# def opponent_performance_stats(fixtures_df, opponent_team_id, current_gw, lookback=5):
-#     team_fixtures = fixtures_df[
-#         ((fixtures_df["team_a"] == opponent_team_id) | (fixtures_df["team_h"] == opponent_team_id))
-#         & (fixtures_df["event"] < current_gw)
-#     ].sort_values(by="event", ascending=False).head(lookback)
-
-#     goals_conceded = 0.0
-#     goals_scored = 0.0
-#     total_weight = 0.0
-
-#     for i, (_, fixture) in enumerate(team_fixtures.iterrows()):
-#         weight = lookback - i  # i=0 = most recent → biggest weight
-#         total_weight += weight
-#         if fixture["team_a"] == opponent_team_id:
-#             goals_conceded += float(fixture.get("team_h_score", 0) or 0) * weight
-#             goals_scored   += float(fixture.get("team_a_score", 0) or 0) * weight
-#         else:
-#             goals_conceded += float(fixture.get("team_a_score", 0) or 0) * weight
-#             goals_scored   += float(fixture.get("team_h_score", 0) or 0) * weight
-
-#     if total_weight == 0:
-#         return {"opponent_goals_scored": 0.0, "opponent_goals_conceded": 0.0}
-
-#     return {
-#         "opponent_goals_scored": goals_scored / total_weight,
-#         "opponent_goals_conceded": goals_conceded / total_weight,
-#     }
+def inverse_features(players_raw_row) -> Dict:
+    data = {}
+    for key in INVERSE_FEATURES:
+        raw = players_raw_row.get(key, None)
+        # Treat None/NaN/"" as missing
+        if raw is None or (isinstance(raw, str) and raw.strip() == "") or pd.isna(raw):
+            data[key] = 0.0
+            continue
+        # Coerce to float safely
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            data[key] = 0.0
+            continue
+        # Map ranks 1,2,3,... → 1.0, 0.5, 0.333... ; 0 or negatives → 0.0
+        if not np.isfinite(val) or val <= 0:
+            data[key] = 0.0
+        else:
+            data[key] = 1.0 / val
+    return data
 
 
 def opponent_performance_stats(fixtures_df, opponent_team_id, current_gw, lookback=5):
@@ -180,6 +177,7 @@ def prepare_training_data(outpath="../data/processed_player_data.csv", seasons=[
         teams_df = load_csv(f"{root}/teams.csv")
         fixtures_df = load_csv(f"{root}/fixtures.csv")
         for _, player_row in players_raw_df.iterrows():
+            inverse_data = inverse_features(player_row)
             player_path = get_path_from_row(root, player_row)
             player_df = load_csv(f"{player_path}/gw.csv")
             position = player_row["element_type"]
@@ -197,13 +195,15 @@ def prepare_training_data(outpath="../data/processed_player_data.csv", seasons=[
                     combined_data.update(position_dict(position))
                     combined_data["game_week"] = i
                     combined_data["season"] = season
+                    combined_data.update(inverse_data)
                     all_data.append(combined_data)
     df = pd.DataFrame(all_data)
     df.to_csv(outpath, index=False)
 
 
-def get_player_features_for_gw_current_season(upcoming_gw, teams_df, player_history_df, player_fixtures_df, position, all_fixtures_df):
-    data = {}
+def get_player_features_for_gw_current_season(upcoming_gw, teams_df, player_history_df, player_fixtures_df, players_raw_dict, all_fixtures_df):
+    data = inverse_features(players_raw_dict)
+    
     for key in FIELDS_TO_WEIGHT:
         data[key] = calculate_weighted_field(player_history_df, key, upcoming_gw)
     
@@ -211,6 +211,7 @@ def get_player_features_for_gw_current_season(upcoming_gw, teams_df, player_hist
     fixture_details = get_team_and_fixture_info_current_season(upcoming_gw, teams_df, player_fixtures_df, all_fixtures_df)
     for fixture_dict in fixture_details:
         combined_data = {**data, **fixture_dict}
+        position = players_raw_dict["element_type"]
         combined_data.update(position_dict(position))
         per_fixture_data.append(combined_data)
     return per_fixture_data
@@ -218,4 +219,4 @@ def get_player_features_for_gw_current_season(upcoming_gw, teams_df, player_hist
 
 
 if __name__ == "__main__":
-    prepare_training_data(outpath="../data/incl_opponent_goals.csv")
+    prepare_training_data(outpath="../data/incl_set_pieces.csv")

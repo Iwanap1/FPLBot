@@ -64,14 +64,13 @@ class FPLDataFetcher:
         pid = self.player_name_to_id(player) if isinstance(player, str) else player
         teams_df = pd.DataFrame(self.bootstrap_data['teams'])
         player_data = self.get_player_current_data(pid)
-        position = player_data['element_type']
 
         try:
             history_df, fixtures_df = self.cached_player_dfs[pid]
         except KeyError:
             history_df, fixtures_df = self.fetch_player_dfs(pid)
         
-        return get_player_features_for_gw_current_season(gw, teams_df, history_df, fixtures_df, position, self.all_fixtures_df)
+        return get_player_features_for_gw_current_season(gw, teams_df, history_df, fixtures_df, player_data, self.all_fixtures_df)
     
 
     def featurize_all_players(self, gw=None) -> pd.DataFrame:
@@ -88,32 +87,7 @@ class FPLDataFetcher:
                 print(f"Error featurizing player ID {pid}: {e}")
                 continue
 
-        return pd.DataFrame(all_features)
-    
-    def player_availavility(self, pid, start_gw, onlook=1):
-        """returns a vector of 0 or 1 for availability of each onlook GW"""
-        player_data = self.get_player_current_data(pid)
-        availability = [1 for _ in range(onlook)]
-        news = player_data.get("news", None)
-        if news is None or news == "":
-            return availability
-        if "unknown" in news.lower():
-            return [0 for _ in range(onlook)]
-        try:
-            history_df, fixtures_df = self.cached_player_dfs[pid]
-        except KeyError:
-            history_df, fixtures_df = self.fetch_player_dfs(pid)
-        
-        fixtures = fixtures_df[(fixtures_df["event"] >= start_gw) & (fixtures_df["event"] < start_gw + onlook)]
-        months = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)"
-        date = re.compile(rf"\b(?P<day>\d+)\s*(?P<month>{months})", flags=re.I)
-        m = date.search(news)
-        if not m:
-            return [0 for _ in range(onlook)]
-    
-        return_day = m.group("day")
-        return_month = m.group("month")
-        
+        return pd.DataFrame(all_features)        
 
     def player_availavility(self, pid, start_gw=None, onlook=1):
         """Return a list[int] of length `onlook`, 1 if player is likely available to play in that GW, else 0.
@@ -148,7 +122,7 @@ class FPLDataFetcher:
             "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
             "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
         }
-        m = re.search(r"\b(?:expected\s+back|back)\s+(\d{1,2})\s+([a-z]{3})", news_l)
+        m = re.search(r"\b(?:expected\s+back|back|until)\s+(\d{1,2})\s+([a-z]{3})", news_l)
         expected_dt = None
         if m is not None:
             day = int(m.group(1))

@@ -1,0 +1,14 @@
+{
+  "data_path": "../data/incl_set_pieces.csv",
+  "output_root": "../models",
+  "run_id": "20251030-133707-f68851b6",
+  "model_class": "XPModel",
+  "input_size": 29,
+  "batch_size": 32,
+  "epochs": 50,
+  "patience": 8,
+  "learning_rate": 1e-05,
+  "test_size": 0.2,
+  "random_state": 42,
+  "best_val_loss": 1.3006657994630044
+}

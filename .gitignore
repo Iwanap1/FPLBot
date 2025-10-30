@@ -210,3 +210,6 @@ __marimo__/
 # other 
 auto_fpl/data/
 misc_test.ipynb
+auto_fpl/old_tests/
+auto_fpl/.DS_Store
+.DS_Store

@@ -8,6 +8,51 @@ class XPPredictor:
     def __init__(self, model_dir: str):
         self.model, self.scaler, self.feature_columns = self.load_xp_model(model_dir)
 
+    # def load_xp_model(self, model_dir):
+    #     features_path = f"{model_dir}/features.json"
+    #     scaler_path   = f"{model_dir}/scaler.pkl"
+    #     model_path    = f"{model_dir}/model.pt"
+
+    #     with open(features_path, "r") as f:
+    #         feature_columns = json.load(f)
+    #     scaler = joblib.load(scaler_path)
+
+    #     model = XPModel(input_size=len(feature_columns))
+    #     state = torch.load(model_path, map_location="cpu")
+    #     model.load_state_dict(state)
+    #     model.eval()
+
+    #     return model, scaler, feature_columns
+
+
+    def _infer_hidden_list_from_state(self, state_dict):
+        """
+        Infer hidden sizes from new-style 'layers.*' checkpoint.
+        Only consider 2-D weights (Linear layers). BN weights are 1-D -> skip.
+        """
+        linear_layers = []
+        for k, v in state_dict.items():
+            if not (k.startswith("layers.") and k.endswith(".weight")):
+                continue
+            try:
+                shape = tuple(v.shape)
+            except Exception:
+                continue
+            if len(shape) != 2:
+                continue
+            idx = int(k.split(".")[1])
+            out_f, in_f = shape
+            linear_layers.append((idx, out_f, in_f))
+
+        if not linear_layers:
+            return None
+        linear_layers.sort(key=lambda t: t[0])
+        outs = [o for _, o, _ in linear_layers]
+        if outs and outs[-1] == 1:
+            outs = outs[:-1]
+        return outs if outs else None
+
+
     def load_xp_model(self, model_dir):
         features_path = f"{model_dir}/features.json"
         scaler_path   = f"{model_dir}/scaler.pkl"
@@ -16,13 +61,21 @@ class XPPredictor:
         with open(features_path, "r") as f:
             feature_columns = json.load(f)
         scaler = joblib.load(scaler_path)
-
-        model = XPModel(input_size=len(feature_columns))
-        state = torch.load(model_path, map_location="cpu")
-        model.load_state_dict(state)
+        try:
+            state = torch.load(model_path, map_location="cpu", weights_only=True)
+        except TypeError:
+            state = torch.load(model_path, map_location="cpu")
+        if any(k.startswith(("fc1", "fc2", "fc3")) for k in state.keys()):
+            model = XPModel(input_size=len(feature_columns), hidden_size=64)
+        else:
+            hidden = self._infer_hidden_list_from_state(state) or [64, 32]
+            model = XPModel(input_size=len(feature_columns), hidden_size=hidden)
+        missing, unexpected = model.load_state_dict(state, strict=False)
+        if missing or unexpected:
+            print(f"[XPPredictor] load_state_dict: missing={missing}, unexpected={unexpected}")
         model.eval()
-
         return model, scaler, feature_columns
+
 
     def predict_xp(
         self,

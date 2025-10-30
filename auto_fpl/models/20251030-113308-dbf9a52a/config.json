@@ -1,0 +1,14 @@
+{
+  "data_path": "../data/incl_opponent_goals.csv",
+  "output_root": "../models",
+  "run_id": "20251030-113308-dbf9a52a",
+  "model_class": "XPModel",
+  "input_size": 25,
+  "batch_size": 32,
+  "epochs": 50,
+  "patience": 5,
+  "learning_rate": 0.0001,
+  "test_size": 0.2,
+  "random_state": 42,
+  "best_val_loss": 0.8858212063535612
+}
