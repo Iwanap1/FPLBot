@@ -1,6 +1,8 @@
 from .api_data_fetcher import FPLDataFetcher
 from auto_fpl.team import Squad, Player
 from auto_fpl.graph_traversal.transfer_history import TransferState
+import time
+from typing import List, Tuple
 
 
 class AutoFPLBot:
@@ -58,7 +60,9 @@ Args:
             if player.pid in price_overrides:
                 object.__setattr__(player, 'price', price_overrides[player.pid])
         
-        self.squad = Squad(players=players, bank=bank, free_transfers=free_transfers)
+        squad = Squad(players=players, bank=bank, free_transfers=free_transfers)
+        self.squad = squad
+        self.og_squad = squad
 
         
     def get_all_players(self):
@@ -82,16 +86,18 @@ Args:
         if self.squad is None:
             self.build_current_squad()
         strategies = self.strategy_planner.transfer_strategy(self.all_players, self.squad)
+
         if isinstance(strategies, list):
             strategies.sort(key=lambda x: x.accumilated_xp_gain, reverse=True)
             if print_top_5:
                 self.print_strategies(strategies)
+            self.strategies = strategies
             return strategies[0]
 
         elif isinstance(strategies, TransferState):
             if print_top_5:
                 self.print_strategies([strategies])
-        
+                self.strategies = [strategies]
         return strategies
                 
 
@@ -105,3 +111,79 @@ Args:
                 for transfer in transfers:
                     print(f"    OUT: {self.data_fetcher.id_to_name(transfer[0])} | IN: {self.data_fetcher.id_to_name(transfer[1])} ")
                 print("\n")
+
+    def do_team(self, commit=False):
+        if not hasattr(self, "strategies"):
+            self.decide_transfer_strategy()
+        print("\nTRANSFERS")
+        print("================")
+        transfers = []
+        for out_pid, in_pid in self.strategies[0].transfers_made[0]:
+            print(f"OUT: {self.data_fetcher.id_to_name(out_pid)} | IN: {self.data_fetcher.id_to_name(in_pid)}")
+
+            # find index in the actual squad by PID (not by Player equality)
+            try:
+                out_idx = next(i for i, p in enumerate(self.og_squad.players) if p.pid == out_pid)
+            except StopIteration:
+                raise ValueError(f"Outgoing player PID {out_pid} is not in current squad")
+            in_player = next(p for p in self.all_players if p.pid == in_pid)
+            out_player = next(p for p in self.all_players if p.pid == out_pid)
+            self.og_squad.apply_swap(out_idx, in_player)
+            transfers.append((out_player, in_player))
+        if commit:
+            "Print Committing Transfers..."
+            self.commit_transfers(transfers)
+            time.sleep(3)
+            "Print Committing Squad..."
+        self.manage_squad(commit)
+        return
+    
+
+    def commit_transfers(self, transfers: List[Tuple[Player, Player]]):
+        if self.fpl_controller is None:
+            raise ValueError("No FPL Controller Provided")
+        formatted_transfers = []
+        for transfer in transfers:
+            formatted_transfers.append({
+                "element_in": int(transfer[1].pid),
+                "element_out": int(transfer[0].pid),
+                "purchase_price": int(transfer[1].price),
+                "selling_price": int(transfer[0].price),
+            })
+
+        self.fpl_controller.submit_transfer(formatted_transfers)
+        return
+    
+    def manage_squad(self, commit=False):
+        best_xi, expected_points = self.og_squad.best_xi(0)
+        best_xi.sort(key= lambda p: p.xps[0], reverse=True)
+        captain = best_xi[0]
+        vice_captain = best_xi[1]
+
+        print("\nStarting XI")
+        print("================")
+        self.print_players(best_xi, captain, vice_captain)
+
+        bench = [p for p in self.squad.players if p not in best_xi]
+        bench.sort(key=lambda p: p.xps[0], reverse=True)
+
+        print("\nBench")
+        print("================")
+        self.print_players(bench)
+        
+        plan = {"StartingXI": [p.pid for p in best_xi], "BenchOrder": [p.pid for p in bench], "Captain": captain.pid, "ViceCaptain": vice_captain.pid}
+        if commit:
+            self.fpl_controller.organise_squad(plan)
+
+
+    def print_players(self, players: List[Player], captain=None, vice_captain=None):
+        for position in ["GK", "DEF", "MID", "FWD"]:
+            starters = [p for p in players if p.pos == position]
+            for starter in starters:
+                if starter == captain:
+                    tail = "(C)"
+                elif starter == vice_captain:
+                    tail = "(VC)"
+                else:
+                    tail = ""
+                print(f"{position}: {self.data_fetcher.id_to_name(starter.pid)} | xP = {starter.xps[0]} {tail}")

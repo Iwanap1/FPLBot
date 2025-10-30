@@ -29,6 +29,41 @@ def _ensure_dir(path: str) -> str:
     Path(path).mkdir(parents=True, exist_ok=True)
     return str(path)
 
+def _balance_train_by_bin(X, y, bins, strategy="undersample", random_state=42, target_per_bin=None):
+    """
+    Return balanced (X, y, bins) for training only.
+    - strategy: "undersample" (default) or "oversample"
+    - target_per_bin:
+        * None  -> min count across bins (for undersample) or max count (for oversample)
+        * int   -> explicit per-bin size
+    """
+    rng = np.random.default_rng(random_state)
+    # make a single indexable table
+    df = pd.DataFrame(X)
+    df["__y__"] = y
+    df["__bin__"] = bins
+
+    counts = df["__bin__"].value_counts()
+    if strategy == "undersample":
+        k = target_per_bin if target_per_bin is not None else counts.min()
+        take = lambda g: g.sample(n=min(k, len(g)), random_state=random_state)
+    elif strategy == "oversample":
+        k = target_per_bin if target_per_bin is not None else counts.max()
+        def take(g):
+            if len(g) >= k:
+                return g.sample(n=k, random_state=random_state)
+            # sample with replacement
+            idx = rng.choice(g.index.values, size=k, replace=True)
+            return g.loc[idx]
+    else:
+        raise ValueError("strategy must be 'undersample' or 'oversample'")
+
+    balanced = df.groupby("__bin__", group_keys=False).apply(take).sample(frac=1.0, random_state=random_state)
+    y_bal = balanced.pop("__y__").to_numpy()
+    bins_bal = balanced.pop("__bin__").to_numpy()
+    X_bal = balanced.to_numpy()
+    return X_bal, y_bal, bins_bal
+
 
 def _compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
     mse = mean_squared_error(y_true, y_pred)
@@ -85,7 +120,7 @@ def _save_parity_plot(y_true, y_pred, out_path: str, title: str = "Parity plot")
 def train_xp_model(
     data_path: str,
     output_root: str = "../models",            # <-- parent dir where unique run dirs are created
-    batch_size: int = 32,
+    batch_size: int = 64,
     epochs: int = 50,
     patience: int = 8,
     learning_rate: float = 1e-4,
@@ -110,40 +145,44 @@ def train_xp_model(
     y = data["points"].values
 
     # ------------- split -------------
-    bins = pd.cut(y, bins=[-np.inf, 0, 2, 5, 10, 20, np.inf], labels=False)
+    bins = pd.cut(y, bins=[-np.inf, 3, 9, np.inf], labels=False)
     X_train, X_test, y_train, y_test, bins_train, bins_test = train_test_split(
         X, y, bins, test_size=test_size, random_state=random_state, stratify=bins
     )
 
-    # ------------- weights -------------
-    counts = pd.Series(bins_train).value_counts().to_dict()
-    w_per_bin = {b: (1.0 / counts[b]) for b in counts}
-    top_bin = max(w_per_bin)
-    w_per_bin[top_bin] *= 1.5
-    sample_weights = np.array([w_per_bin[b] for b in bins_train], dtype=np.float32)
-    sample_weights *= (len(sample_weights) / sample_weights.sum())
-    w_train = torch.tensor(sample_weights, dtype=torch.float32)
+    # ------------- balance TRAIN ONLY -------------
+    # choose one:
+    #   a) undersample to the smallest bin (safer, avoids overfitting)
+    X_train, y_train, bins_train = _balance_train_by_bin(
+        X_train, y_train, bins_train, strategy="undersample", random_state=random_state
+    )
+    #   b) OR oversample to the largest bin (comment the block above and use this instead)
+    # X_train, y_train, bins_train = _balance_train_by_bin(
+    #     X_train, y_train, bins_train, strategy="oversample", random_state=random_state
+    # )
 
     # ------------- scale -------------
     scaler = StandardScaler()
     X_train = scaler.fit_transform(X_train)
-    X_test = scaler.transform(X_test)
+    print(len(X_train))
+    X_test  = scaler.transform(X_test)
 
     # ------------- datasets / loaders -------------
-    train_dataset = TensorDataset(torch.tensor(X_train, dtype=torch.float32),
-                                torch.tensor(y_train, dtype=torch.float32),
-                                w_train)
+    train_dataset = TensorDataset(
+        torch.tensor(X_train, dtype=torch.float32),
+        torch.tensor(y_train, dtype=torch.float32),
+    )
     test_dataset = TensorDataset(
         torch.tensor(X_test, dtype=torch.float32),
         torch.tensor(y_test, dtype=torch.float32),
     )
-    
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    test_loader  = DataLoader(test_dataset,  batch_size=batch_size, shuffle=False)
+
 
     # ------------- model / opt / loss -------------
     model = XPModel(input_size=X_train.shape[1], hidden_size=hidden_size)
-    criterion = torch.nn.SmoothL1Loss(reduction="none")
+    criterion = torch.nn.HuberLoss(reduction="none")
 
     optimizer = torch.optim.Adam(model.parameters(), lr=3e-4, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -158,11 +197,10 @@ def train_xp_model(
     for epoch in range(epochs):
         model.train()
         train_losses = []
-        for xb, yb, wb in train_loader:
+        for xb, yb in train_loader:
             optimizer.zero_grad()
             pred = model(xb).squeeze()
-            loss_vec = criterion(pred, yb)
-            loss = (wb * loss_vec).sum() / wb.sum()  # weighted mean
+            loss = criterion(pred, yb).mean()
             train_losses.append(float(loss.detach().cpu()))
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -226,7 +264,7 @@ def train_xp_model(
         # train preds
         train_preds = []
         train_targets = []
-        for xb, yb, wb in DataLoader(train_dataset, batch_size=batch_size, shuffle=False):
+        for xb, yb in DataLoader(train_dataset, batch_size=batch_size, shuffle=False):
             train_preds.append(model(xb).squeeze().cpu().numpy())
             train_targets.append(yb.cpu().numpy())
         train_preds = np.concatenate(train_preds)
@@ -256,6 +294,7 @@ def train_xp_model(
     config: Dict[str, Any] = {
         "data_path": data_path,
         "output_root": output_root,
+        "split": "strat",
         "run_id": run_id,
         "model_class": "XPModel",
         "input_size": X_train.shape[1],
@@ -275,4 +314,4 @@ def train_xp_model(
     return run_dir
 
 if __name__ == "__main__":
-    train_xp_model("../data/incl_set_pieces.csv", hidden_size=[64, 64], learning_rate=1e-5)
+    train_xp_model("../data/incl_set_pieces.csv", hidden_size=[64, 64], learning_rate=1e-4)

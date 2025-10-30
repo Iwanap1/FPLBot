@@ -188,6 +188,8 @@ def train_xp_model(
         "model_class": "XPModel",
         "input_size": X_train.shape[1],
         "batch_size": batch_size,
+        "hidden_size": hidden_size,
+        "training": "Huber normal",
         "epochs": epochs,
         "patience": patience,
         "learning_rate": learning_rate,
@@ -202,4 +204,4 @@ def train_xp_model(
     return run_dir
 
 if __name__ == "__main__":
-    train_xp_model("../data/incl_set_pieces.csv")
+    train_xp_model("../data/incl_set_pieces.csv", hidden_size=[32,32])

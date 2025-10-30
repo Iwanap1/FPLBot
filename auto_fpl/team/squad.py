@@ -102,5 +102,4 @@ class Squad:
             all_sorted = sorted(self.players, key=lambda p: xp(p, gw_onlook), reverse=True)
             best_eleven = all_sorted[:11]
             best_total_xp = sum(xp(p, gw_onlook) for p in best_eleven)
-
         return best_eleven, best_total_xp

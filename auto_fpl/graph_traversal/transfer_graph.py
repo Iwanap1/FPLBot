@@ -119,8 +119,7 @@ Args:
         for i, player in enumerate(self.squad.players):
             for candidate in self._filter_candidates():
                 if not candidate.pid in self.squad.all_pids and self.squad.can_swap(i, candidate):
-                    new_squad = deepcopy(self.squad)
-                    new_squad.apply_swap(i, candidate)
+                    new_squad = self._clone_with_swap(self.squad, i, candidate)
                     new_squad.free_transfers -= 1
                     xp = self._calculate_gw_best_xi_xp(new_squad, ft_start0, 1)
                     transfers_made = [[] for _ in range(self.depth)]
@@ -179,8 +178,7 @@ Args:
             for i, player in enumerate(state.current_squad.players):
                 for candidate in self._filter_candidates():
                     if not candidate.pid in state.current_squad.all_pids and state.current_squad.can_swap(i, candidate):
-                        new_squad = deepcopy(state.current_squad)
-                        new_squad.apply_swap(i, candidate)
+                        new_squad = self._clone_with_swap(state.current_squad, i, candidate)
                         new_squad.free_transfers -= 1
                         xp = self._calculate_gw_best_xi_xp(new_squad, ft_start_0, 1)
                         new_transfers_made = [lst.copy() for lst in state.transfers_made]
@@ -196,8 +194,18 @@ Args:
             all_states.append(new_states)
         return all_states
 
-
-
+    def _clone_with_swap(self, squad: Squad, out_idx: int, incoming: Player) -> Squad:
+        # minimal clone
+        new_players = list(squad.players)
+        out_p = new_players[out_idx]
+        new_players[out_idx] = incoming
+        new_bank = squad.bank - (incoming.price - out_p.price)
+        new_squad = Squad.__new__(Squad)    # allocate without __init__
+        new_squad.players = new_players
+        new_squad.bank = new_bank
+        new_squad.free_transfers = squad.free_transfers
+        new_squad.all_pids = (squad.all_pids - {out_p.pid}) | {incoming.pid}
+        return new_squad
                         
 
     
