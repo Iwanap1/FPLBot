@@ -1,8 +1,17 @@
 # FPLBot
-Automatically do your FPL team using an MLP to predict expected points for each player over a window of gameweeks and finding the optimal transfer plan to maximise the accumulated xP of the best starting XI using tree traversal algorithms.
+Automatically do your FPL team with 2 principal components. Firstly, the XP model to predict a players expected points (xP) for each gameweek (GW) over a selected depth (default 5), and secondly a graph traversal algorithm to find the transfer strategy that maximises the accumulated xP by the best 11 players over the *depth* GWs. 
 
 ## Installation
-
+install with
+```
+gh repo clone Iwanap1/FPLBot
+cd FPLBot
+```
+The following packages are required:
+- pytorch
+- scikit-learn
+- requests
+- playwright (if you wish to use the FPLController to automatically retrieve squad info and/or submit transfers and squad plan)
 
 ## Usage
 To be able to access your current squad (including current selling price, which is not available on the public API) and (optionally) submit the transfers and final XI / Captain automatically, you must set the following environment variables in a .env file in the root directory. You may find your FPL_ID by logging in to the FPL website and clicking on 'my team', your ID will be in the URL.
@@ -22,7 +31,7 @@ python run.py
 ```
 By default, the transfers and squad plan will not be committed to FPL. If you do want to commit the changes, set bot.do_team(commit=True) in run.py 
 
-## Output
+### Output
 This example was immediately before GW10 of the 25/26 season, using the squad in test_squad.json. The team had 2 free transfers.
 ```
 Featurising players for GW10: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 746/746 [00:39<00:00, 19.11it/s]
