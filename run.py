@@ -1,4 +1,4 @@
-from auto_fpl import AutoFPLBot, HeuristicBeamSearchTransferPlanner, FPLDataFetcher, FPLController, XPPredictor, GreedyTransferPlanner
+from auto_fpl import AutoFPLBot, HeuristicBeamSearchTransferPlanner, FPLController, XPPredictor, GreedyTransferPlanner
 import os, json
 
 
@@ -37,8 +37,6 @@ with open("test_squad.json", "r") as f:
     test_squad = json.load(f)
 
 
-fetcher = FPLDataFetcher(cache_dfs=True)
-
 bot = AutoFPLBot(
     xp_predictor=xp_predictor,
     strategy_planner=beam_planner, # choose transfer planner
@@ -46,4 +44,4 @@ bot = AutoFPLBot(
 )
 
 # bot.build_current_squad(test_squad)
-bot.do_team(commit=True)
+bot.do_team(commit=False)

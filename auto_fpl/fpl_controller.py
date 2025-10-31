@@ -66,7 +66,7 @@ class FPLController:
 
     def start_session(self, headless=True):
         if not hasattr(self, 'access_token'):
-            print("Obtaining access token, this may take a while")
+            print("Logging in to FPL...")
             self.run_login_and_get_token(headless=headless)
         s = requests.Session()
         s.headers.update({
@@ -146,50 +146,34 @@ class FPLController:
 
         url = "https://fantasy.premierleague.com/api/transfers/"
         payload = {
-            "confirmed": False,           # first pass: preview
+            "confirmed": True,
             "entry": self.team_id,
             "event": self.gw,
             "transfers": transfers,
             "wildcard": wildcard,
-            "freehit": free_hit,          # <-- key is 'freehit' (no underscore)
+            "freehit": free_hit,
         }
-
-        hdrs = {
+        headers = {
             **self.session.headers,
             "Content-Type": "application/json",
             "Origin": "https://fantasy.premierleague.com",
             "Referer": "https://fantasy.premierleague.com/",
+            "x-api-authorization": self.session.headers.get("Authorization", ""),
         }
 
-        # include the header name FPL actually uses when we sniffed it
-        if "x-api-authorization" not in hdrs and "Authorization" in hdrs:
-            hdrs["x-api-authorization"] = hdrs["Authorization"]
+        r = self.session.post(url, json=payload, headers=headers)
 
-        r = self.session.post(url, data=json.dumps(payload), headers=hdrs)
+        # Handle “already applied” as success
+        if r.status_code == 400 and "transfers" in r.json():
+            msgs = json.dumps(r.json())
+            if "transfer_element_in_is_pick" in msgs and "transfer_element_out_not_pick" in msgs:
+                print("Transfers already applied; treating as success.")
+                return {"ok": True, "already_applied": True}
 
-        # Accept 200/204, and only parse JSON when present
         if r.status_code not in (200, 204):
-            raise RuntimeError(f"Transfer (preview) failed {r.status_code}: {r.text[:300]}")
+            raise RuntimeError(f"Transfer failed {r.status_code}: {r.text[:300]}")
 
-        if r.headers.get("content-type","").startswith("application/json") and r.text.strip():
-            preview = r.json()
-            print("Preview:", preview)
-        else:
-            print(f"Preview: HTTP {r.status_code} with no body")
-
-        # Second pass: confirm the transfers
-        payload["confirmed"] = True
-        r2 = self.session.post(url, data=json.dumps(payload), headers=hdrs)
-
-        if r2.status_code not in (200, 204):
-            raise RuntimeError(f"Transfer (confirm) failed {r2.status_code}: {r2.text[:300]}")
-
-        if r2.headers.get("content-type","").startswith("application/json") and r2.text.strip():
-            print("Transfer successful:", r2.json())
-            return r2.json()
-
-        print(f"Transfer successful: HTTP {r2.status_code} with no body")
-        return {"ok": True, "status_code": r2.status_code}
+        return r.json() if r.headers.get("content-type","").startswith("application/json") else {"ok": True}
 
     
     def organise_squad(self, plan: dict):

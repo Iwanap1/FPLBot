@@ -147,8 +147,8 @@ Args:
             formatted_transfers.append({
                 "element_in": int(transfer[1].pid),
                 "element_out": int(transfer[0].pid),
-                "purchase_price": int(transfer[1].price),
-                "selling_price": int(transfer[0].price),
+                "purchase_price": int(transfer[1].price * 10),
+                "selling_price": int(transfer[0].price * 10),
             })
 
         self.fpl_controller.submit_transfer(formatted_transfers)
@@ -170,7 +170,7 @@ Args:
         print("\nBench")
         print("================")
         self.print_players(bench)
-        
+
         plan = {"StartingXI": [p.pid for p in best_xi], "BenchOrder": [p.pid for p in bench], "Captain": captain.pid, "ViceCaptain": vice_captain.pid}
         if commit:
             self.fpl_controller.organise_squad(plan)
@@ -186,4 +186,4 @@ Args:
                     tail = "(VC)"
                 else:
                     tail = ""
-                print(f"{position}: {self.data_fetcher.id_to_name(starter.pid)} | xP = {starter.xps[0]} {tail}")
+                print(f"{position}: {self.data_fetcher.id_to_name(starter.pid)} | xP = {round(starter.xps[0], 2)} {tail}")
