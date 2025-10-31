@@ -1,11 +1,12 @@
 # FPLBot
 Automatically do your FPL team using an MLP to predict expected points for each player over a window of gameweeks and finding the optimal transfer plan to maximise the accumulated xP of the best starting XI using tree traversal algorithms.
 
-
+## Installation
 
 
 ## Usage
 To be able to access your current squad (including current selling price, which is not available on the public API) and (optionally) submit the transfers and final XI / Captain automatically, you must set the following environment variables in a .env file in the root directory. You may find your FPL_ID by logging in to the FPL website and clicking on 'my team', your ID will be in the URL.
+
 ```
 .env
 EMAIL=<your fpl email>
@@ -13,16 +14,16 @@ PASSWORD=<your fpl password>
 FPL_ID=<your fpl ID>
 ```
 
-To run the script with default settings (beam search algorithm with depth 5), use:
+If you do not want to login to FPL, you can instead set controller to None in run.py, but you must then call FPLBot.build_current_squad(squad_dict) with a dictionary like that in test_squad.json before calling FPLBot.do_team().
 
+Otherwise, after setting the environment variables, run as follows.
 ```
-bash
 python run.py
 ```
+By default, the transfers and squad plan will not be committed to FPL. If you do want to commit the changes, set bot.do_team(commit=True) in run.py 
 
 ## Output
 ```
-bash
 Logging in to FPL...
 Featurising players for GW10: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 746/746 [00:38<00:00, 19.61it/s]
 Featurising players for GW11: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 746/746 [00:03<00:00, 235.07it/s]
