@@ -43,5 +43,6 @@ bot = AutoFPLBot(
     fpl_controller=controller
 )
 
-# bot.build_current_squad(test_squad)
+
+bot.build_current_squad(test_squad)
 bot.do_team(commit=False)

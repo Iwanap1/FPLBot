@@ -23,41 +23,41 @@ python run.py
 By default, the transfers and squad plan will not be committed to FPL. If you do want to commit the changes, set bot.do_team(commit=True) in run.py 
 
 ## Output
+This example was immediately before GW10 of the 25/26 season, using the squad in test_squad.json. The team had 2 free transfers.
 ```
-Logging in to FPL...
-Featurising players for GW10: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 746/746 [00:38<00:00, 19.61it/s]
-Featurising players for GW11: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 746/746 [00:03<00:00, 235.07it/s]
-Featurising players for GW12: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 746/746 [00:03<00:00, 236.39it/s]
-Featurising players for GW13: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 746/746 [00:03<00:00, 235.50it/s]
-Featurising players for GW14: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 746/746 [00:03<00:00, 232.29it/s]
+Featurising players for GW10: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 746/746 [00:39<00:00, 19.11it/s]
+Featurising players for GW11: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 746/746 [00:03<00:00, 230.11it/s]
+Featurising players for GW12: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 746/746 [00:03<00:00, 234.79it/s]
+Featurising players for GW13: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 746/746 [00:03<00:00, 226.97it/s]
+Featurising players for GW14: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 746/746 [00:03<00:00, 233.25it/s]
 Traversing Possible Transfers...
-Traversal: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 5/5 [03:12<00:00, 38.41s/it, expanded=2e+4, kept=15]
+Traversal: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 5/5 [03:45<00:00, 45.10s/it, expanded=27710, kept=15]
 
 TRANSFERS
 ================
-OUT: João Pedro Junqueira de Jesus | IN: Igor Thiago Nascimento Rodrigues
-OUT: Dan Ndoye | IN: Iliman Ndiaye
+OUT: Cole Palmer | IN: Bukayo Saka
+OUT: Eliezer Mayenda Dossou | IN: Jean-Philippe Mateta
 
 Starting XI
 ================
-GK: Emiliano Martínez Romero | xP = 1.9838573932647705 
-DEF: Daniel Muñoz Mejía | xP = 3.6903984546661377 
-DEF: Marcos Senesi Barón | xP = 3.2834737300872803 
-DEF: Gabriel Gudmundsson | xP = 3.1139111518859863 
-MID: Bukayo Saka | xP = 6.358638286590576 
-MID: Iliman Ndiaye | xP = 6.004890441894531 
-MID: Elliot Anderson | xP = 3.0208497047424316 
-MID: Amad Diallo | xP = 2.8033227920532227 
-FWD: Jean-Philippe Mateta | xP = 7.44330358505249 (C)
-FWD: Igor Thiago Nascimento Rodrigues | xP = 6.549025058746338 (VC)
-FWD: Danny Welbeck | xP = 5.355681419372559 
+GK: Emiliano Martínez Romero | xP = 1.98 
+DEF: Daniel Muñoz Mejía | xP = 3.69 
+DEF: Marcos Senesi Barón | xP = 3.28 
+DEF: Gabriel Gudmundsson | xP = 3.11 
+MID: Bukayo Saka | xP = 6.36 (VC)
+MID: Elliot Anderson | xP = 3.02 
+MID: Amad Diallo | xP = 2.8 
+MID: Morgan Rogers | xP = 2.56 
+FWD: Jean-Philippe Mateta | xP = 7.44 (C)
+FWD: Danny Welbeck | xP = 5.36 
+FWD: João Pedro Junqueira de Jesus | xP = 3.15 
 
 Bench
 ================
 GK: Alisson Becker | xP = 0.0 
-DEF: Ezri Konsa Ngoyo | xP = 1.5690187215805054 
+DEF: Ezri Konsa Ngoyo | xP = 1.57 
 DEF: Jeremie Frimpong | xP = 0.0 
-MID: Morgan Rogers | xP = 2.560279130935669 
+MID: Dan Ndoye | xP = 0.55 
 ```
 
 
